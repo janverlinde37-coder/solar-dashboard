@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d0d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="Live Sunsynk solar, battery and grid flow beside the weather forecast, for a wall tablet.">
+<title>Solar Dashboard</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d0d0d;
+    --card: #1a1a19;
+    --card-2: #222220;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hair: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+
+    /* identity — validated as a set against the dark surface (all-pairs, CVD + normal vision) */
+    --solar: #c98500;
+    --battery: #199e70;
+    --grid: #3987e5;
+    --home: #c3c2b7;          /* the destination stays neutral */
+
+    /* status — only ever with a word beside it */
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+
+    /* weather pictograms */
+    --wx-sun: #f0b429;
+    --wx-cloud: #c3c2b7;
+    --wx-rain: #5598e7;
+    --wx-snow: #e8e8e4;
+
+    --radius: 18px;
+    --gap: clamp(8px, 1.4vmin, 18px);
+    font-size: clamp(12px, 1.45vmin + 0.45vw, 22px);
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* author display rules must not un-hide things */
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: var(--gap);
+    padding: var(--gap) calc(var(--gap) + env(safe-area-inset-right)) var(--gap) calc(var(--gap) + env(safe-area-inset-left));
+    height: 100dvh;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, input, select { font: inherit; color: inherit; }
+
+  /* ------------------------------------------------ top bar */
+  .top {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--gap);
+    padding: 0 0.25rem;
+  }
+  .clock { display: flex; align-items: baseline; gap: 0.9rem; }
+  .clock .time { font-size: 2.9rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+  .clock .date { font-size: 1.05rem; color: var(--ink-2); }
+  .place { text-align: center; color: var(--muted); font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status { display: flex; align-items: center; gap: 0.6rem; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.8rem; border-radius: 999px;
+    background: var(--card); box-shadow: inset 0 0 0 1px var(--ring);
+    font-size: 0.9rem; color: var(--ink-2); white-space: nowrap;
+  }
+  .dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.fresh { background: var(--good); }
+  .dot.stale { background: var(--warning); }
+  .dot.offline { background: var(--critical); }
+  .gear {
+    width: 2.6rem; height: 2.6rem; border-radius: 50%; border: 0;
+    background: var(--card); box-shadow: inset 0 0 0 1px var(--ring);
+    display: grid; place-items: center; cursor: pointer; position: relative; touch-action: none;
+  }
+  .gear svg { width: 1.3rem; height: 1.3rem; stroke: var(--muted); }
+  .gear .hold { position: absolute; inset: -3px; border-radius: 50%; pointer-events: none; }
+  .gear.holding .hold { animation: hold 0.7s linear forwards; }
+  @keyframes hold {
+    from { box-shadow: 0 0 0 0 var(--ink-2); }
+    to { box-shadow: 0 0 0 3px var(--ink-2); }
+  }
+  .hint {
+    position: fixed; right: var(--gap); top: 4.6rem; z-index: 5;
+    background: var(--card-2); color: var(--ink-2); padding: 0.5rem 0.9rem; border-radius: 10px;
+    font-size: 0.85rem; box-shadow: inset 0 0 0 1px var(--ring); opacity: 0; transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .hint.show { opacity: 1; }
+
+  /* ------------------------------------------------ panels */
+  main {
+    display: grid;
+    grid-template-columns: 1.08fr 1fr;
+    gap: var(--gap);
+    min-height: 0;
+  }
+  .panel {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px var(--ring);
+    padding: calc(var(--gap) * 1.1);
+    min-height: 0;
+    display: grid;
+    gap: var(--gap);
+  }
+  .panel h2 {
+    margin: 0; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  /* ------------------------------------------------ power */
+  .power { grid-template-rows: auto minmax(0, 1fr) auto auto; }
+  .phead { display: grid; gap: 0.5rem; }
+  .note {
+    margin: 0; padding: 0.55rem 0.8rem; border-radius: 10px; font-size: 0.92rem; line-height: 1.35;
+    color: var(--ink); background: rgba(208, 59, 59, 0.16); box-shadow: inset 3px 0 0 var(--critical);
+  }
+  .flow { width: 100%; height: 100%; min-height: 0; display: block; }
+  .flow text { font-family: inherit; }
+  .flow .lbl { fill: var(--muted); font-size: 11.5px; letter-spacing: 0.04em; }
+  .flow .val { fill: var(--ink); font-size: 21px; font-weight: 600; }
+  .flow .track { stroke: var(--axis); stroke-width: 2; }
+  .flow .stream { stroke-width: 4.5; stroke-linecap: round; stroke-dasharray: 0.1 13; fill: none; }
+  .flow .stream.run { animation: run 1.1s linear infinite; }
+  .flow .stream.idle { display: none; }
+  .flow .arrow.idle { display: none; }
+  @keyframes run { to { stroke-dashoffset: -13.1; } }
+  @media (prefers-reduced-motion: reduce) { .flow .stream.run { animation: none; } }
+  .flow .node-bg { fill: var(--card-2); stroke-width: 2.5; }
+  .flow .node-bg.off { stroke: var(--axis) !important; }
+  .flow .hub { fill: var(--card-2); stroke: var(--axis); stroke-width: 2; }
+
+  .battery-row { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 1rem; }
+  .soc { font-size: 3.2rem; font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
+  .soc small { font-size: 1.4rem; font-weight: 500; color: var(--ink-2); margin-left: 0.1rem; }
+  .meter-wrap { display: grid; gap: 0.45rem; }
+  .meter { height: 0.9rem; border-radius: 999px; background: var(--card-2); box-shadow: inset 0 0 0 1px var(--ring); overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0%; background: var(--battery); border-radius: 999px; transition: width 0.6s ease; }
+  .meter.low > i { background: var(--critical); }
+  .batt-text { font-size: 1rem; color: var(--ink-2); display: flex; justify-content: space-between; gap: 1rem; }
+  .batt-text b { color: var(--ink); font-weight: 600; }
+  .tag { font-size: 0.75rem; font-weight: 600; padding: 0.1rem 0.45rem; border-radius: 6px; margin-left: 0.4rem; }
+  .tag.low { background: var(--critical); color: #fff; }
+
+  .today-block { border-top: 1px solid var(--hair); padding-top: calc(var(--gap) * 0.8); display: grid; gap: 0.5rem; }
+  .totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem 1rem; }
+  .totals .t { display: grid; grid-template-columns: auto 1fr; column-gap: 0.45rem; align-items: baseline; min-width: 0; }
+  .totals .sw { width: 0.6rem; height: 0.6rem; border-radius: 3px; align-self: center; }
+  .totals .k { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+  .totals .v { grid-column: 2; font-size: 1.25rem; font-weight: 600; white-space: nowrap; }
+
+  /* ------------------------------------------------ weather */
+  .weather { grid-template-rows: auto auto minmax(0, 1fr); }
+  .now { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 1.1rem; }
+  .now .wx { width: 5.2rem; height: 5.2rem; }
+  .now .temp { font-size: 4.2rem; font-weight: 600; line-height: 1; letter-spacing: -0.03em; }
+  .now .desc { display: grid; gap: 0.25rem; }
+  .now .desc .c { font-size: 1.35rem; font-weight: 600; }
+  .now .desc .s { font-size: 0.95rem; color: var(--ink-2); }
+
+  /* minmax(0, …) on both levels: a long line must never widen its card and push the
+     card's content off-centre — it wraps inside the card instead. */
+  .days { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--gap) * 0.8); min-height: 0; }
+  .day {
+    background: var(--card-2); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--ring);
+    padding: 0.8rem 0.5rem; display: grid; grid-template-columns: minmax(0, 1fr);
+    justify-items: center; align-content: space-evenly; gap: 0.35rem;
+    text-align: center; min-width: 0;
+  }
+  .day > * { max-width: 100%; }
+  .day .dn { font-size: 1.05rem; font-weight: 600; }
+  .day .dd { font-size: 0.8rem; color: var(--muted); margin-top: -0.2rem; }
+  .day .wx { width: 3.4rem; height: 3.4rem; }
+  .day .cond { font-size: 0.82rem; color: var(--ink-2); min-height: 1.1em; }
+  .day .hl { font-size: 1.45rem; font-weight: 600; }
+  .day .hl span { color: var(--muted); font-weight: 500; font-size: 1.1rem; }
+  .day .row {
+    font-size: 0.85rem; color: var(--ink-2); display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: center; column-gap: 0.3rem; row-gap: 0.1rem;
+  }
+  .day .row > span { white-space: nowrap; }
+  .day .row .mm { color: var(--muted); }
+  .day .row svg { width: 0.95rem; height: 0.95rem; flex: none; }
+  .day .sol { border-top: 1px solid var(--hair); padding-top: 0.45rem; width: 100%; display: grid; gap: 0.1rem; }
+  .day .sol .k { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .day .sol .v { font-size: 1.05rem; font-weight: 600; }
+
+  .muted-note { color: var(--muted); font-size: 0.9rem; }
+  .is-old { opacity: 0.55; transition: opacity 0.3s; }
+
+  /* ------------------------------------------------ overlays */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, 0.82);
+    display: none; place-items: center; padding: var(--gap);
+    -webkit-user-select: text; user-select: text;
+  }
+  .overlay.open { display: grid; }
+  .sheet {
+    width: min(34rem, 100%); max-height: 100%; overflow: auto;
+    background: var(--card); border-radius: var(--radius); box-shadow: inset 0 0 0 1px var(--ring);
+    padding: 1.4rem; display: grid; gap: 1rem;
+  }
+  .sheet.wide { width: min(60rem, 100%); }
+  .sheet h1 { margin: 0; font-size: 1.5rem; }
+  .sheet h3 { margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .sheet p { margin: 0; color: var(--ink-2); line-height: 1.45; }
+  .field { display: grid; gap: 0.35rem; }
+  .field label { font-size: 0.9rem; color: var(--ink-2); }
+  .field input, .field select {
+    background: var(--bg); border: 1px solid var(--axis); border-radius: 10px;
+    padding: 0.75rem 0.9rem; font-size: 1.05rem; width: 100%;
+  }
+  .field input:focus, .field select:focus { outline: 2px solid var(--grid); outline-offset: 1px; }
+  .pw { position: relative; }
+  .pw button { position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%); }
+  .btns { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .btn {
+    border: 0; border-radius: 10px; padding: 0.75rem 1.2rem; cursor: pointer;
+    background: var(--card-2); box-shadow: inset 0 0 0 1px var(--ring); font-weight: 600;
+  }
+  .btn.primary { background: var(--grid); color: #fff; box-shadow: none; }
+  .btn.small { padding: 0.45rem 0.8rem; font-size: 0.9rem; font-weight: 500; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .msg { min-height: 1.3em; font-size: 0.95rem; }
+  .msg.err { color: #f08a8a; }
+  .msg.ok { color: #6fcf6f; }
+  .results { display: grid; gap: 0.4rem; }
+  .results button { text-align: left; }
+  .fine { font-size: 0.82rem; color: var(--muted); }
+  pre.diag {
+    margin: 0; background: var(--bg); border-radius: 10px; padding: 1rem; font-size: 0.78rem;
+    max-height: 60vh; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--ink-2);
+  }
+
+  /* narrow / short screens: keep everything on one page */
+  @media (max-aspect-ratio: 1/1) {
+    body { overflow: auto; height: auto; }
+    main { grid-template-columns: 1fr; }
+    .flow { height: 22rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="clock"><span class="time" id="time">--:--</span><span class="date" id="date"></span></div>
+  <div class="place" id="place"></div>
+  <div class="status">
+    <span class="pill" id="statusPill"><span class="dot" id="statusDot"></span><span id="statusText">Starting…</span></span>
+    <button class="gear" id="gear" aria-label="Settings (press and hold)">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      <span class="hold"></span>
+    </button>
+  </div>
+</header>
+<div class="hint" id="hint">Press and hold for settings</div>
+
+<main>
+  <section class="panel power" aria-label="Power">
+    <div class="phead">
+      <h2>Power now</h2>
+      <p class="note" id="powerNote" role="status" hidden></p>
+    </div>
+    <svg class="flow" id="flow" viewBox="0 0 400 318" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Power flow"></svg>
+    <div class="battery-row">
+      <div class="soc" id="soc">--<small>%</small></div>
+      <div class="meter-wrap">
+        <div class="meter" id="meter"><i id="meterFill"></i></div>
+        <div class="batt-text"><span id="battState">Battery</span><span id="battPower"></span></div>
+      </div>
+    </div>
+    <div class="today-block">
+      <h2>Today</h2>
+      <div class="totals" id="totals"></div>
+    </div>
+  </section>
+
+  <section class="panel weather" aria-label="Weather">
+    <h2 id="wxTitle">Weather</h2>
+    <div class="now" id="now"><span class="muted-note">Loading the forecast…</span></div>
+    <div class="days" id="days"></div>
+  </section>
+</main>
+
+<!-- Settings / first-run sign-in -->
+<div class="overlay" id="setup" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+  <div class="sheet">
+    <h1 id="setupTitle">Solar dashboard</h1>
+    <p id="setupIntro">Sign in with the same email and password as the Sunsynk Connect app.</p>
+
+    <div class="field">
+      <label for="user">Sunsynk email</label>
+      <input id="user" type="email" autocomplete="username" inputmode="email" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="pass">Password</label>
+      <div class="pw">
+        <input id="pass" type="password" autocomplete="current-password">
+        <button class="btn small" type="button" id="showPass">Show</button>
+      </div>
+    </div>
+    <div class="field" id="plantField" hidden>
+      <label for="plant">System</label>
+      <select id="plant"></select>
+    </div>
+    <div class="msg" id="setupMsg" aria-live="polite"></div>
+    <div class="btns">
+      <button class="btn primary" id="signIn">Sign in</button>
+      <button class="btn" id="setupClose" hidden>Close</button>
+    </div>
+
+    <h3>Weather location</h3>
+    <p id="locNow"></p>
+    <div class="btns"><button class="btn small" id="locReset" hidden>Use the system's own location</button></div>
+    <div class="field">
+      <label for="locQuery">Change to a town or suburb</label>
+      <div class="btns" style="flex-wrap:nowrap">
+        <input id="locQuery" type="text" placeholder="e.g. Oudtshoorn" style="flex:1">
+        <button class="btn" id="locSearch">Search</button>
+      </div>
+    </div>
+    <div class="results" id="locResults"></div>
+
+    <h3>More</h3>
+    <div class="btns">
+      <button class="btn small" id="openDiag">Diagnostics</button>
+      <button class="btn small" id="signOut" hidden>Sign out</button>
+    </div>
+    <p class="fine">Your login is kept only on this tablet. It is sent to Sunsynk and nowhere else.</p>
+    <p class="fine" id="appVersion"></p>
+  </div>
+</div>
+
+<!-- Diagnostics: the raw answers from Sunsynk, for when a number looks wrong -->
+<div class="overlay" id="diag" role="dialog" aria-modal="true" aria-labelledby="diagTitle">
+  <div class="sheet wide">
+    <h1 id="diagTitle">Diagnostics</h1>
+    <p>The raw data Sunsynk returned. If a number on the dashboard looks wrong, a screenshot of this helps fix it. Your password and session token are not shown.</p>
+    <pre class="diag" id="diagOut">Loading…</pre>
+    <div class="btns">
+      <button class="btn" id="diagRefresh">Refresh</button>
+      <button class="btn" id="diagClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
